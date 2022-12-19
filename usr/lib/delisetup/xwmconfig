@@ -1,0 +1,128 @@
+#!/bin/sh
+# Copyright 1999  Patrick Volkerding, Moorhead, Minnesota USA
+# All rights reserved.
+#
+# Redistribution and use of this script, with or without modification, is
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of this script must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+#  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+#  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+#  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+#  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+if [ "$USER" = "root" ]; then
+  TMP=/var/log/setup/tmp
+else
+  TMP=$HOME/.xwmconfig
+fi
+
+if [ ! -d $TMP ]; then
+ mkdir -p $TMP
+ chmod 700 $TMP
+fi
+
+# Remove any previous script:
+rm -f $TMP/tmpscript.sh
+
+# Add the top of the script:
+cat << EOF > $TMP/tmpscript.sh
+#!/bin/sh
+dialog --title "SELECT DEFAULT WINDOW MANAGER FOR X" --radiolist \\
+"Please select the default window manager to use with the X Window \\
+System.  This will define the style of graphical user interface \\
+the computer uses.  GNOME and KDE provide the most features. People \\
+with Windows or MacOS experience will find either one easy to use.  \\
+Other window managers are easier on system \\
+resources, or provide other unique features." 16 74 4 \\
+EOF
+
+# Add IceWM as first and default entry:
+if [ -x /usr/bin/icewm ]; then
+  echo "\"icewm\" \"Feature-rich but small WM  \" \"on\" \\" >> $TMP/tmpscript.sh
+fi
+
+# Then, we add Fluxbox
+if [ -x /usr/bin/fluxbox ]; then
+    echo "\"fluxbox\" \"Popular small window manager\" \"off\" \\" >> $TMP/tmpscript.sh
+fi
+
+
+# Add swm:
+if [ -x /usr/bin/startswm ]; then
+  echo "\"swm\" \"A small lightweight WM\" \"off\" \\" >> $TMP/tmpscript.sh
+fi
+
+# Add jwm:
+if [ -x /usr/bin/jwm ]; then
+  echo "\"jwm\" \"Joe's Window Manager\" \"off\" \\" >> $TMP/tmpscript.sh
+fi
+
+
+# Add twm:
+if [ -x /usr/bin/twm ]; then
+  echo "\"twm\" \"Tab Window Manager (very basic)\" \"off\" \\" >> $TMP/tmpscript.sh
+fi
+
+
+
+# Then, the tail end:
+cat << EOF >> $TMP/tmpscript.sh
+2> $TMP/output
+if [ \$? = 1 -o \$? = 255 ]; then
+  rm -f $TMP/output
+  exit
+fi
+EOF
+
+sh $TMP/tmpscript.sh
+
+if [ ! -r $TMP/output ]; then
+  rm -f $TMP/tmpscript.sh
+  exit
+fi
+
+OUTPUT=`cat $TMP/output`
+
+if [ -r $HOME/.xinitrc ]; then
+  mv $HOME/.xinitrc $HOME/.xinitrc-backup
+fi
+cat /usr/lib/delisetup/xinitrc > $HOME/.xinitrc
+
+case "$OUTPUT" in
+  "icewm") WM="icewm-session" ;;
+  "fluxbox") WM="startfluxbox" ;;
+  "twm") WM="twm" ;;
+  "swm") WM="startswm" ;;
+  "jwm") WM="jwm" ;;
+  *) WM="rxvt" ;;
+esac
+
+
+
+if [ -x /usr/bin/fldesk ]; then
+  dialog --title "XD640 detected" \
+  --yesno "Do you want to run the XD640 Desktop Environment \
+with $OUTPUT ?" 8 70
+  if [ $? = 0 ]; then
+    echo "fldesk &" >> $HOME/.xinitrc
+    echo "fllauncher &" >> $HOME/.xinitrc
+  fi
+fi
+
+
+echo "exec $WM" >> $HOME/.xinitrc
+dialog --title "\$HOME/.xinitrc written" --msgbox "Your default \
+window manager has been selected.  You chose $OUTPUT " 7 50
+
+rm -f $TMP/tmpscript.sh $TMP/output
+

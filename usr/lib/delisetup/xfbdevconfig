@@ -1,0 +1,23 @@
+#!/bin/sh
+# Setting up xkdrive's Xfbdev XServer
+# Made for DeLi Linux
+
+
+TMP=/var/log/setup/tmp
+
+if [ -x /usr/bin/Xfbdev ]; then
+  XS='Xfbdev'
+else
+  dialog --msgbox "Xfbdev is not installed"  5 40
+  exit 255
+fi
+
+rm -f /usr/bin/X
+ln -s /usr/bin/$XS /usr/bin/X
+chmod u+s /usr/bin/$XS
+if [ -x /usr/bin/startx ]; then
+  mv /usr/bin/startx /usr/bin/startx.old
+fi
+echo "#!/bin/sh" >/usr/bin/startx
+echo "xinit" >>/usr/bin/startx
+chmod a+x /usr/bin/startx

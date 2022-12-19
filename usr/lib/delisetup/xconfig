@@ -1,0 +1,34 @@
+#!/bin/sh
+# Setting up xkdrive's Xvesa XServer
+# Made for DeLi Linux
+
+
+TMP=/var/log/setup/tmp
+
+if [ -x /usr/bin/Xvesa ]; then
+  XS='Xvesa'
+else
+  dialog --msgbox "Xvesa is not installed"  5 40
+  exit 255
+fi
+
+echo "dialog --menu \"Select the appropiate X server - Default is Xvesa \" 20 70 15 \\" >$TMP/tskript$$
+for i in Xfbdev Xvesa; do
+echo "$i X-Server \\" >>$TMP/tskript$$; done
+echo "2> /tmp/xserver" >>$TMP/tskript$$
+chmod a+x $TMP/tskript$$
+. $TMP/tskript$$
+
+if [ $? = 1 -o $? = 255 ]; then
+    XS='Xvesa';
+    else
+    XS=`cat /tmp/xserver`;
+fi
+	
+		
+if [ "$XS" = "Xvesa" ]; then 
+    /usr/lib/delisetup/xvesaconfig
+else
+    /usr/lib/delisetup/xfbdevconfig
+fi
+  

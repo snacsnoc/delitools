@@ -1,0 +1,22 @@
+#!/bin/sh
+cd /usr/share/locale
+
+echo "dialog --menu \"Select language \" 20 70 15 \\" >/tmp/tskript$$
+for i in $(ls -d -1 */); do
+echo "$i \\*  \\" >>/tmp/tskript$$; done
+echo "2> /tmp/return" >>/tmp/tskript$$
+chmod a+x /tmp/tskript$$
+. /tmp/tskript$$
+
+if [ $? = 1 -o $? = 255 ]; then
+    in='C';       
+else
+    in=`cat /tmp/return`;
+fi
+
+echo "export LANG='$in'" >> /etc/profile
+
+rm -f /tmp/tskript$$ >/dev/null
+rm -f /tmp/return >/dev/null
+
+

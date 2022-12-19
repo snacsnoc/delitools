@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# Copyright 1993,1994,1999 Patrick Volkerding, Moorhead, Minnesota USA
+# All rights reserved.
+#
+# Redistribution and use of this script, with or without modification, is 
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of this script must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+#  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+#  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
+#  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+#  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# As always, bug reports, suggestions, etc: volkerdi@mhd1.moorhead.msus.edu
+# or bf703@cleveland.freenet.edu, or (if you absolutely must) (218) 233-4349.
+# 
+TMP=/var/log/setup/tmp
+PARTLIST="`probe -l | fgrep "Linux native" 2> /dev/null`"
+if [ "$PARTLIST" = "" ]; then
+ dialog --title "NO LINUX PARTITIONS DETECTED" \
+ --msgbox "There don't seem to be any partitions on this machine of type \
+ Linux native. You'll need to make at least one of these to install Linux. \
+ To do this, you'll need to leave 'setup', and make the partitions using \
+ 'cfdisk' or 'fdisk'.  For more information, read the 'setup' help \
+ file from the next menu." 10 60
+fi
+echo "$PARTLIST" > $TMP/SeTplist
+exit 0
+
+
+

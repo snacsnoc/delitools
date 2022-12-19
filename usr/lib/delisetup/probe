@@ -1,0 +1,9 @@
+#!/bin/sh
+# This is 'probe', a wrapper for using fdisk to gather drive info for
+# the Slackware setup scripts.  I hate to bounce this much garbage through
+# a tmpdir, but it looks like large variables can make ash crash...
+TMP=/var/log/setup/tmp
+if [ ! -r $TMP/SeTfdisk -o '$1' = '-r' ]; then
+  fdisk -l > $TMP/SeTfdisk
+fi
+cat $TMP/SeTfdisk

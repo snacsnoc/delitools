@@ -1,0 +1,170 @@
+#!/bin/sh
+# Setting up MasqMail
+# Made for DeLi Linux by Henry Jensen
+
+
+TMP=/var/log/setup/tmp
+mv /etc/masqmail/masqmail.conf /etc/masqmail/masqmail.conf.old
+HN=`hostname -f`
+LH=`hostname`
+LH="$LH;$HN;localhost"
+
+
+dialog --inputbox "The login name on this Computer under you wish to get and send mail" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+DUN=`cat $TMP/return`
+
+USEREXIST=$(grep ^$DUN: /etc/passwd|cut -d: -f1)
+
+if [ "$USEREXIST" != "$DUN" ]; then
+  dialog --yesno "User $DUN does not exist on this system.\n\
+Create one  ?" 10 60
+  if [ $? = 0 ]; then
+    useradd -m $DUN
+    echo "Password for $DUN:"
+    passwd "$DUN"
+  else
+    dialog --msgbox "Can not set up the mail system without an valid user" 5 70
+    exit 255
+  fi
+fi
+
+
+
+
+# Writing /etc/masqmail.conf
+
+echo "host_name=\"$HN\"" >/etc/masqmail/masqmail.conf
+echo "local_hosts=\"$LH\"" >>/etc/masqmail/masqmail.conf
+echo "listen_addresses=\"$(hostname):25;localhost:25\"" >>/etc/masqmail/masqmail.conf
+echo "spool_dir=\"/var/spool/masqmail\"" >>/etc/masqmail/masqmail.conf
+echo "mail_dir=\"/var/spool/mail\"" >>/etc/masqmail/masqmail.conf
+echo "use_syslog=false" >>/etc/masqmail/masqmail.conf
+echo "log_dir=\"/var/log/masqmail\"" >>/etc/masqmail/masqmail.conf
+echo "do_queue=false" >>/etc/masqmail/masqmail.conf
+echo "mda=\"/usr/bin/procmail -Y -d \${rcpt_local}\"" >>/etc/masqmail/masqmail.conf
+echo "connect_route.deli=\"/etc/masqmail/deli.route\"" >>/etc/masqmail/masqmail.conf
+echo "get.deli=\"/etc/masqmail/deli.get\"" >>/etc/masqmail/masqmail.conf
+
+chown mail.mail /etc/masqmail/masqmail.conf
+chmod 600 /etc/masqmail/masqmail.conf
+
+
+
+# Writing /etc/masqmail/deli.get (for getting mail)
+
+mv /etc/masqmail/deli.get /etc/masqmail/deli.get.old
+
+echo "protocol=pop3" >/etc/masqmail/deli.get
+
+dialog --inputbox "The name of the POP3 server you wish to connect to\
+ (for getting mail)" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+POP3=`cat $TMP/return`
+
+dialog --inputbox "Your username at $POP3" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+POP3USER=`cat $TMP/return`
+
+dialog --inputbox "And your POP3 password" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+POP3PASS=`cat $TMP/return`
+
+echo "server=$POP3" >>/etc/masqmail/deli.get
+echo "user=$POP3USER" >>/etc/masqmail/deli.get
+echo "pass=\"$POP3PASS\"" >>/etc/masqmail/deli.get
+echo "address=$DUN@localhost" >>/etc/masqmail/deli.get
+
+dialog --yesno "Keep mails on server ?" 5 60
+if [ $? = 0 ]; then
+  echo "do_keep=true" >>/etc/masqmail/deli.get
+  echo "do_uidl=true" >>/etc/masqmail/deli.get
+else
+  echo "do_keep=false" >>/etc/masqmail/deli.get
+  echo "do_uidl=false" >>/etc/masqmail/deli.get
+fi
+
+dialog --inputbox "Maximum allowed size of mail you want to \
+get (in bytes !)" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+MMS=`cat $TMP/return`
+
+echo "max_size=$MMS" >>/etc/masqmail/deli.get
+
+chown mail.mail /etc/masqmail/deli.get
+chmod 600 /etc/masqmail/deli.get
+
+# Writing /etc/masqmail/deli.route (for sending mail)
+
+mv /etc/masqmail/deli.route /etc/masqmail/deli.route.old
+
+
+
+echo "allowed_mail_locals=\"$DUN\"" >/etc/masqmail/deli.route
+
+dialog --inputbox "The name of your SMTP Server (for sending mail)" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+SMTP=`cat $TMP/return`
+
+echo "mail_host=\"$SMTP\"" >>/etc/masqmail/deli.route
+echo "do_correct_helo=true" >>/etc/masqmail/deli.route
+
+dialog --inputbox "Your mail address" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+MAILADDR=`cat $TMP/return`
+
+dialog --inputbox "Your real name" 10 76 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+REALNAME=`cat $TMP/return`
+
+echo "map_return_path_addresses=\"$DUN: $MAILADDR\"" >>/etc/masqmail/deli.route
+echo "map_h_from_addresses=\"$DUN: $REALNAME <$MAILADDR>\"" >>/etc/masqmail/deli.route
+
+dialog --radiolist "Select your authentification method"  11 76 3 \
+"1" "SMTP after POP (get mail before send)" "on" \
+"2" "SMTP AUTH (CRAM-MD5 only!)" "off" \
+"3" "None" "off" 2>$TMP/return
+if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+AUTH=`cat $TMP/return`
+
+case $AUTH in
+  2) echo "auth_name=\"cram-md5\"" >>/etc/masqmail/deli.route
+     dialog --inputbox "Your loginname at $SMTP" 10 76 2>$TMP/return
+     if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+     SMTPUSER=`cat $TMP/return`
+     dialog --inputbox "And your SMTP password" 10 76 2>$TMP/return
+     if [ $? != 0 ]; then echo "Mail configuration aborted"; exit 255; fi
+     SMTPPASS=`cat $TMP/return`
+     echo "auth_login=\"$SMTPUSER\"" >>/etc/masqmail/deli.route
+     echo "auth_secret=\"$SMTPPASS\"" >>/etc/masqmail/deli.route
+     ;;
+
+  1) echo "pop3_login=\"/etc/masqmail/deli.get\"" >>/etc/masqmail/deli.route
+     ;;
+  
+  3) ;;
+  
+  *) ;;
+
+esac
+
+chown mail.mail /etc/masqmail/deli.route
+chmod 600 /etc/masqmail/deli.route
+
+echo "#!/bin/sh" >/usr/bin/gmail
+echo "/usr/sbin/masqmail -g deli" >>/usr/bin/gmail
+chmod 777 /usr/bin/gmail
+
+echo "#!/bin/sh" >/usr/bin/smail
+echo "/usr/sbin/masqmail -qo deli" >>/usr/bin/smail
+chmod 777 /usr/bin/smail
+
+
+dialog --msgbox "CONGRATULATION: Mail setup completed\n\
+Now you can connect to the internet and get and send mail\n\n\
+IMPORTANT: For getting mail type 'gmail' and for sending\n\
+mail type 'smail'\n\n\
+For reading mail I suggest mutt from the net series" 15 76
+
+
+ 

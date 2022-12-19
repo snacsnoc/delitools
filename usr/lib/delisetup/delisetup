@@ -1,0 +1,319 @@
+#!/bin/sh
+#
+# Copyright 1993,1994,1999 Patrick Volkerding, Moorhead, Minnesota USA
+# All rights reserved.
+#
+# Redistribution and use of this script, with or without modification, is 
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of this script must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+#  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+#  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
+#  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+#  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# As always, bug reports, suggestions, etc: volkerdi@mhd1.moorhead.msus.edu
+# or bf703@cleveland.freenet.edu, or (if you absolutely must) (218) 233-4349.
+# 
+# Modified for DeLi Linux
+#
+
+set_keymap() {
+	echo '==> Set Keyboard mapping <=='
+
+	if [[ `uname -m` == i[3-6]86 ]] ; then
+		mapdir="`echo /usr/share/kbd/keymaps/i386`"
+	else
+   		echo "Unknown architecture." ; return 1
+	fi
+echo "dialog --menu \"Select keymap - Default is us \" 20 70 15 \\" >/tmp/tskript$$
+for i in $(find /usr/share/kbd/keymaps/i386  -name '*.map.gz' | sed 's,^.*/,,; s,\.map\.gz$,,' | sort -u); do 
+echo "$i keyboard \\" >>/tmp/tskript$$; done
+echo "2> /tmp/keymap" >>/tmp/tskript$$
+chmod a+x /tmp/tskript$$
+. /tmp/tskript$$
+
+if [ $? = 1 -o $? = 255 ]; then
+    in='us';       
+else
+    in=`cat /tmp/keymap`;
+fi
+
+
+sed s/KEYMAP=.*/KEYMAP=$in/ /etc/rc.conf >/tmp/rc.conf.tmp
+mv /tmp/rc.conf.tmp /etc/rc.conf
+
+rm -f /tmp/tskript$$ >/dev/null
+rm -f /tmp/keymap >/dev/null
+
+}
+
+
+set_locale() {
+
+echo '==> Set language(s) <=='
+
+echo "dialog --menu \"Select language \" 20 70 15 \\" >/tmp/tskript$$
+while read i; do
+echo "$i \\*  \\" >>/tmp/tskript$$; done</usr/lib/delisetup/locales.txt
+echo "2> /tmp/return" >>/tmp/tskript$$
+chmod a+x /tmp/tskript$$
+. /tmp/tskript$$
+
+if [ $? = 1 -o $? = 255 ]; then
+    in='C';       
+else
+    in=`cat /tmp/return`;
+fi
+newprofile=`mktemp`
+
+egrep -v "export LANG|unicode_start" /etc/profile >$newprofile
+
+echo "export LANG='$in'" >> $newprofile
+echo "unicode_start" >> $newprofile
+mv  /etc/profile /etc/profile.old
+cp $newprofile /etc/profile
+chmod 644 /etc/profile
+rm $newprofile
+
+rm -f /tmp/tskript$$ >/dev/null
+rm -f /tmp/return >/dev/null
+
+
+}
+
+set_rootpw() {
+	echo '==> Set root password <=='
+	while ! passwd root ; do sleep 1 ; done
+	echo
+}
+
+set_lilo()  {
+	/sbin/liloconfig
+	echo
+}
+
+
+set_ppp()   {
+    if [ -x /usr/sbin/pppsetup ]; then
+     /usr/sbin/pppsetup
+    else
+     dialog --msgbox "ppp not installed"  5 40
+    fi
+    echo
+}
+
+
+
+
+set_net()   {
+    /usr/lib/delisetup/netconfig
+    echo
+}
+
+set_xorg()  {
+ dialog --msgbox "Hint:This is for setup the XOrg-Xserver\n\
+To setup the tiny X Servers choose 'Setup Tiny X Server'" 7 60
+if [ -x /usr/bin/xorgcfg ]; then
+  ln -sf /usr/bin/Xorg /usr/bin/X
+  cp /usr/lib/delisetup/startx /usr/bin
+ /usr/bin/xorgcfg -textmode
+else
+ dialog --msgbox "/usr/bin/xorgcfg not found"  5 60
+fi
+}
+
+set_x()  {
+ dialog --msgbox "Hint: This is for setup the Tiny X Server\n\
+To setup Xorg X Server choose 'Setup XOrg X Server'"  7 60
+
+if [ -x /usr/bin/Xvesa ]; then
+ /usr/lib/delisetup/xconfig
+else
+ dialog --msgbox "You don't have the Tiny X-Servers installed"  5 60
+fi
+}
+
+
+
+
+set_xwm()   {
+    /usr/lib/delisetup/xwmconfig
+    echo
+}
+
+
+set_services() {
+rm -f /tmp/return
+OLDSERV=`grep ^SERVICES /etc/rc.conf`
+OSFILE=`mktemp`
+echo $OLDSERV >$OSFILE
+
+
+echo "dialog --separate-output --checklist \"Select services to run at boot\" 20 70 15 \\" >/tmp/tskript$$
+    for i in $(ls /etc/rc.d/*); do
+         s=`basename $i`
+         if egrep -q "$s |$s\"" $OSFILE; then
+	   echo "$s service on \\" >>/tmp/tskript$$
+         else
+	   echo "$s service off \\" >>/tmp/tskript$$
+         fi
+     done
+    echo "2> /tmp/return" >>/tmp/tskript$$      
+chmod a+x /tmp/tskript$$
+. /tmp/tskript$$
+
+
+if [ $? = 1 -o $? = 255 ]; then
+    SERV=$OLDSERV;       
+else
+    first=1
+    # net service must come first
+    if grep -q ^net$ /tmp/return; then
+      SERV="SERVICES=\"net"
+      first=0
+      grep -v ^net$ /tmp/return >/tmp/return.new
+      mv /tmp/return.new /tmp/return
+    else   
+      SERV="SERVICES=\""
+    fi
+    while read n; do
+      if [ $first -ne 1 ]; then
+       SERV="${SERV} ${n}"
+      else
+       SERV="${SERV}${n}"
+       first=0
+      fi            
+    done < /tmp/return
+    SERV="$SERV\""
+fi
+cp /tmp/return /tmp/retun-alt
+cp /etc/rc.conf /etc/rc.conf.old
+grep -v SERVICES /etc/rc.conf >/tmp/rc.conf.new
+
+echo "$SERV" >>/tmp/rc.conf.new
+mv /tmp/rc.conf.new /etc/rc.conf
+rm $OSFILE /tmp/tskript$$
+}
+
+
+
+TMP=/var/log/setup/tmp
+
+PATH="$PATH:/usr/lib/delisetup"
+if [ ! -d $TMP ]; then
+  mkdir -p $TMP
+fi
+rm -f $TMP/* >/dev/null
+
+
+if [ -e /var/delisetupmade ]; then # Setup-Menu
+while : 
+do
+dialog --menu "DELI LINUX SETUP" 20 70 15 \
+"1" "Setup Keyboard" \
+"2" "Setup Language" \
+"3" "Setup Lilo - the Linux Loader" \
+"4" "Setup PPP - Needs data from your Internet Service Provider" \
+"5" "Setup local Network" \
+"6" "Setup XOrg X Server" \
+"7" "Setup Tiny X Server" \
+"8" "Setup window manager" \
+"9" "Install additional software packages" \
+"A" "Set up your Mail system (with masqmail)" \
+"B" "Set up the services too run at boot" \
+"Q" "Quit" 2>/tmp/return
+ 
+if [ $? = 1 -o $? = 255 ]; then
+    exit 1;
+fi       
+
+ret=`cat /tmp/return`
+
+case "$ret" in
+    
+    "1" )
+    set_keymap ;;
+    
+    "2" )
+    set_locale ;;
+    
+    "3" )
+    set_lilo ;;
+    
+    "4" )
+    set_ppp ;;
+    
+    "5" )
+    set_net ;;
+    
+    "6" )
+    set_xorg ;;
+
+    "7" )
+    set_x ;;
+
+    "8" )
+    set_xwm ;;
+    
+    "9" )
+    set_services ;;
+
+    "Q" )
+    clear
+    exit 0 ;;
+    
+    *)
+    clear
+    exit 1 ;;
+    
+esac
+  
+done
+
+else # First Setup
+
+probing
+SeTpartitions
+SeTswap
+SeTDOS
+T_PX=/
+     cat $TMP/SeTnative > $T_PX/etc/fstab
+     if [ -r $TMP/SeTswap ]; then
+      cat $TMP/SeTswap >> $T_PX/etc/fstab
+     fi
+
+
+     if [ -r $TMP/SeTDOS ]; then
+      cat $TMP/SeTDOS >> $T_PX/etc/fstab
+     fi
+     echo "none             /dev/pts  devpts     gid=5,mode=620  0   0" >> $T_PX/etc/fstab
+     echo "none             /proc    proc        defaults   0   0" >> $T_PX/etc/fstab
+
+# set right permissions for some device files
+
+chmod 666 /dev/tty* >/dev/null
+chmod 666 /dev/null* >/dev/null
+chmod 666 /dev/pty* >/dev/null
+
+set_keymap
+set_rootpw
+set_locale
+set_lilo
+
+  
+   dialog --title "SETUP COMPLETE" --msgbox "System configuration \
+and installation is complete. You may EXIT setup and reboot your machine with \
+ctrl-alt-delete." 7 55
+touch /var/delisetupmade
+exit 0
+
+fi

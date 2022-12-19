@@ -1,0 +1,55 @@
+#!/bin/sh
+# Setting up xkdrive's Xvesa XServer
+# Made for DeLi Linux
+
+
+TMP=/var/log/setup/tmp
+
+if [ -x /usr/bin/Xvesa ]; then
+  XS='Xvesa'
+else
+  dialog --msgbox "Xvesa is not installed"  5 40
+  exit 255
+fi
+
+$XS -listmodes 2>$TMP/modes
+
+cat << EOF > $TMP/tempscript
+dialog --title "Select video mode" --menu \\
+"Please select a video mode" 13 70 5 \\
+EOF
+
+
+cat $TMP/modes | while [ 0 ]; do
+  read BLA;
+  if [ "$BLA" = "" ]; then
+    break;
+  fi
+  HEX=`echo $BLA|cut -f 1 -d ' '|cut -c 1-6`
+  MODE=`echo $BLA|cut -f 2-8 -d ' '`
+  HEXF=`echo $HEX|cut -c 1`
+  if [ "$HEXF" = "0" ]; then
+    echo "\"$HEX\" \"$MODE\" \\" >> $TMP/tempscript;
+ fi
+done
+echo "2> $TMP/return" >> $TMP/tempscript
+. $TMP/tempscript
+
+if [ $? = 1 -o $? = 255 ]; then
+  rm $TMP/tempscript
+  exit 255 # user abort
+fi
+
+MODE=`cat $TMP/return`
+rm -f $TMP/return
+
+rm -f /usr/bin/X
+ln -s /usr/bin/$XS /usr/bin/X
+chmod u+s /usr/bin/$XS
+if [ -x /usr/bin/startx ]; then
+  mv /usr/bin/startx /usr/bin/startx.old
+fi
+echo "#!/bin/sh" >/usr/bin/startx
+echo "xinit -- -mode $MODE" >>/usr/bin/startx
+chmod a+x /usr/bin/startx
+rm -f $TMP/modes

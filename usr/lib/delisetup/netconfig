@@ -1,0 +1,488 @@
+#!/bin/sh
+# This checks IP address syntax.
+# usage: syntax_check ADDRESS #-OF-EXPECTED-SEGMENTS (up to 4)
+# example: syntax_check 123.22.43.1 4
+# returns: 0=found correct  1=too many fields  2=non numeric field found
+# Modified for DeLi Linux by Henry Jensen
+
+TMP=/var/log/setup/tmp
+if [ ! -d $TMP ]; then
+ mkdir -p $TMP
+ chmod 700 $TMP
+fi
+syntax_check_color() {
+  RET_CODE=0 
+  SCRATCH=$1
+  SCRATCH=`echo $SCRATCH | tr "." "/"`
+  INDEX=$2
+  while [ ! "$INDEX" = "0" ]; do
+    # OK, so I'm a LISP-head :^)
+    FIELD=`basename $SCRATCH`
+    SCRATCH=`dirname $SCRATCH`
+    if expr $FIELD + 1 1> /dev/null 2> /dev/null; then
+      GOOD=y
+    else
+      RET_CODE=2; # non-numeric field
+    fi
+    INDEX=`expr $INDEX - 1`
+  done
+  if [ ! "$SCRATCH" = "." ]; then
+    RET_CODE=1; # too many arguments
+  fi
+  if [ "$3" = "WARN" -a ! "$RET_CODE" = "0" ]; then
+    cat << EOF > $TMP/tempmsg
+
+The address you have entered seems to be non-standard. We were expecting
+$2 groups of numbers seperated by dots, like: 127.0.0.1
+Are you absolutely sure you want to use the address $1?
+
+EOF
+    dialog --title "WARNING" --yesno "`cat $TMP/tempmsg`" 9 72
+    if [ $? = 0 ]; then
+      RET_CODE = 0;
+    fi
+    rm -r $TMP/tempmsg
+  else
+    if [ "$3" = "ECHO" ]; then
+      echo $RET_CODE;
+    fi
+  fi
+  return $RET_CODE;
+}
+
+if [ ! -d lost+found -a ! -d vmlinuz -a ! -d proc ]; then # cheap, but it works :^)
+ cd /
+fi;
+
+# IMPORTANT!!! NO LEADING '/' in the paths below, or this script will not
+# function from the bootdisk.
+IFCONFIG=sbin/ifconfig			# Where ifconfig program is.
+ROUTE=sbin/route			# Where route program is.
+RC=etc/rc.d/net 			# Where rc.inet1 file is.
+RESOLV=etc/resolv.conf			# Where resolv.conf file is.
+HOSTS=etc/hosts			 	# Where hosts file is.
+ETCNETWORKS=etc/networks		# Where networks file is.
+DHCP=no                                 # Use DHCP, yes/no.
+#
+# defaults:
+NETWORK=127.0.0.0
+IPADDR=127.0.0.1
+NETMASK=255.255.255.0
+#
+############################################################################
+#			 Question and answer.
+############################################################################
+#
+cat << EOF > $TMP/tempmsg
+
+Now we will attempt to configure your network. This 
+process probably won't work on all possible network 
+configurations, but should give you a good start. You will be
+able to reconfigure your system at any time by typing:
+  
+  netconfig
+
+EOF
+dialog --title "NETWORK CONFIGURATION" --msgbox "`cat $TMP/tempmsg`" 12 70
+while [ 0 ]; do
+cat << EOF > $TMP/tempmsg
+First, we'll need the name you'd like to give your host. Only
+the base hostname is needed right now. (not the domain)
+
+Enter hostname:
+EOF
+ dialog --title "ENTER HOSTNAME" --inputbox "`cat $TMP/tempmsg`" 11 70 \
+ $HOSTNM 2> $TMP/SeThost
+ if [ $? = 1 -o $? = 255 ]; then
+  rm -f $TMP/SeThost $TMP/tempmsg
+  exit
+ fi
+ HOSTNM="`cat $TMP/SeThost`"
+ rm -f $TMP/SeThost $TMP/tempmsg
+ if [ ! "$HOSTNM" = "" ]; then
+  break;
+ fi
+done
+
+while [ 0 ]; do
+cat << EOF > $TMP/tempmsg
+Now, we need the domain name. Do not supply a leading '.'
+
+Enter domain name for $HOSTNM: 
+EOF
+ dialog --title "ENTER DOMAINNAME FOR '$HOSTNM'" --inputbox \
+"`cat $TMP/tempmsg`" \
+10 70 $DOMAIN 2> $TMP/SeTdom
+ if [ $? = 1 -o $? = 255 ]; then
+  rm -f $TMP/SeTdom $TMP/tempmsg
+  exit
+ fi
+ DOMAIN="`cat $TMP/SeTdom`"
+ rm -f $TMP/SeTdom $TMP/tempmsg
+ if [ ! "$DOMAIN" = "" ]; then
+  break;
+ fi
+done
+
+# echo $HOSTNM.$DOMAIN > etc/HOSTNAME
+
+sed "s|HOSTNAME=.*|HOSTNAME=$HOSTNM|" /etc/rc.conf >/tmp/rc.conf.tmp
+mv /tmp/rc.conf.tmp /etc/rc.conf
+
+dialog --title "SETUP IP FOR '$HOSTNM.$DOMAIN'" --menu \
+"Now we need to know how your machine connects to the network.  If you \
+have an internal network card and an assigned IP address, gateway, \
+and DNS, use the 'static IP' choice to enter these values.  If your IP \
+address is assigned by a DHCP server (commonly used by cable modem and DSL \
+services), select 'DHCP'.  If you do not have a network card, select \
+the 'loopback' choice.  'loopback' is also the correct choice if your \
+only connection to the network will be through a serial modem \
+(with SLIP or PPP), or if you are using a laptop network card (these \
+are configured in /etc/pcmcia/). What type of network connection \
+best describes your machine?" 19 71 3 \
+"static IP" "Use a static IP address to configure ethernet" \
+"DHCP" "Use a DHCP server to configure ethernet" \
+"loopback" "Set up a loopback connection (modem or no net)" 2> $TMP/reply
+if [ $? = 1 -o $? = 255 ]; then
+  rm -f $TMP/reply
+  exit
+fi
+REPLY=`cat $TMP/reply`
+rm -f $TMP/reply
+
+if [ "$REPLY" = "DHCP" ]; then
+  DHCP="yes"
+elif [ "$REPLY" = "loopback" ]; then
+  LOOPBACK="yes"
+else
+  LOOPBACK="no"
+fi
+
+if [ "$LOOPBACK" = "no" -a "$DHCP" = "no" ]; then
+
+ while [ 0 ]; do
+  if [ -r $TMP/SeTIP ]; then
+   IPADDR=`cat $TMP/SeTIP`
+  fi
+  cat << EOF > $TMP/tempmsg
+Enter your IP address for the local machine. Example: 
+111.112.113.114
+Enter IP address for $HOSTNM (aaa.bbb.ccc.ddd): 
+EOF
+  dialog --title "ENTER IP ADDRESS FOR '$HOSTNM.$DOMAIN'" --inputbox \
+"`cat $TMP/tempmsg`" \
+10 68 $IPADDR 2> $TMP/SeTlip
+  if [ $? = 1 -o $? = 255 ]; then
+   rm -f $TMP/SeTlip $TMP/tempmsg
+   exit
+  fi
+  IPADDR="`cat $TMP/SeTlip`"
+  rm -f $TMP/SeTlip $TMP/tempmsg
+  if [ "$IPADDR" = "" ]; then
+   continue;
+  fi
+  syntax_check_color $IPADDR 4 WARN
+  if [ $? = 0 ]; then
+   echo $IPADDR > $TMP/SeTIP
+   break;
+  fi
+ done
+
+ while [ 0 ]; do
+  if [ -r $TMP/SeTnetmask ]; then
+   NETMASK=`cat $TMP/SeTnetmask`
+  fi
+  cat << EOF > $TMP/tempmsg
+Enter your netmask. This will generally look something
+like this: 255.255.255.0
+Enter netmask (aaa.bbb.ccc.ddd):
+EOF
+  dialog --title "ENTER NETMASK FOR LOCAL NETWORK" --inputbox \
+"`cat $TMP/tempmsg`" \
+10 65 $NETMASK 2> $TMP/SeTnmask
+  if [ $? = 1 -o $? = 255 ]; then
+   rm -f $TMP/SeTnmask $TMP/tempmsg
+   exit
+  fi
+  NETMASK="`cat $TMP/SeTnmask`"
+  rm -f $TMP/SeTnmask $TMP/tempmsg
+  if [ "$NETMASK" = "" ]; then
+   continue;
+  fi
+  syntax_check_color $NETMASK 4 WARN
+  if [ $? = 0 ]; then
+   echo $NETMASK > $TMP/SeTnetmask
+   break;
+  fi
+ done
+ 
+# Set broadcast/network addresses automatically:
+
+ while [ 0 ]; do
+  if [ -r $TMP/SeTgateway ]; then
+   GATEWAY=`cat $TMP/SeTgateway`
+  fi
+  cat << EOF > $TMP/tempmsg
+Enter the address for the gateway on your network,
+such as `echo $IPADDR | cut -f 1-3 -d .`.1
+
+If you don't have a gateway on your network (or if this machine
+is the gateway, such as if you'll be using it with a modem link
+to the outside network as a router, firewall, or for IP
+masquerading for a LAN), just hit ENTER without entering a
+gateway IP address.
+
+Enter gateway address (aaa.bbb.ccc.ddd):
+EOF
+  dialog --title "ENTER GATEWAY ADDRESS" --inputbox "`cat $TMP/tempmsg`" \
+  17 68 $GATEWAY 2> $TMP/SeTgate
+  if [ $? = 1 -o $? = 255 ]; then
+   rm -f $TMP/SeTgate $TMP/tempmsg
+   exit
+  fi
+  GATEWAY="`cat $TMP/SeTgate`"
+  rm -f $TMP/SeTgate $TMP/tempmsg
+  if [ "$GATEWAY" = "" ]; then
+    break;
+  fi
+  syntax_check_color $GATEWAY 4 WARN
+  if [ $? = 0 ]; then
+    echo $GATEWAY > $TMP/SeTgateway
+    break;
+  fi
+ done
+
+fi
+
+#
+############################################################################
+#			  The rc.d/net file.
+############################################################################
+#
+# echo "Creating /$RC..."
+/bin/cat << ENDFILE > $RC
+#!/bin/sh
+# /etc/rc.d/net: start/stop network                                             
+#                                                                               
+
+
+# Edit these values to set up a static IP address:
+IPADDR="$IPADDR"	# REPLACE with YOUR IP address!
+GATEWAY="$GATEWAY"	# REPLACE with YOUR gateway address!
+DHCP="$DHCP"            # Use DHCP ("yes" or "no")
+
+case \$1 in                                                                      
+start)                                                                          
+/sbin/ifconfig lo 127.0.0.1
+if [ "\$DHCP" = "yes" ]; then # use DHCP to set everything up:
+  echo "Attempting to configure eth0 by contacting a DHCP server..."
+  /sbin/dhcpcd
+elif [ ! "\$IPADDR" = "127.0.0.1" ]; then # set up IP statically:
+  # Set up the ethernet card:
+  echo "Configuring eth0 as \${IPADDR}..."
+  /sbin/ifconfig eth0 \${IPADDR} 
+  # If there is a gateway defined, then set it up:
+  if [ ! "\$GATEWAY" = "" ]; then
+    /sbin/route add default gw \${GATEWAY} 
+  fi
+fi
+
+
+	;;
+stop)
+        /sbin/ifconfig lo down
+	if [ ! "\$IPADDR" = "127.0.0.1" ]; then
+	 /sbin/ifconfig eth0 down
+	fi
+        ;;
+restart)
+	/etc/rc.d/net stop
+	/etc/rc.d/net start
+	;;
+
+*)
+	echo "usage: /etc/rc.d/net [start|stop|restart]"
+	;;
+esac                                                                            
+									
+
+# To use DHCP instead of a static IP, set this value to "yes":
+
+# OK, time to set up the interface:
+
+# End of /etc/rc.d/net
+ENDFILE
+chmod 755 $RC
+#
+############################################################################
+#			  The networks file.
+############################################################################
+#
+#echo "Creating /$ETCNETWORKS..."
+/bin/cat <<EOF >$ETCNETWORKS
+#
+# networks	This file describes a number of netname-to-address
+#		mappings for the TCP/IP subsystem.  It is mostly
+#		used at boot time, when no name servers are running.
+#
+
+loopback	127.0.0.0
+
+# End of networks.
+EOF
+chmod 644 $ETCNETWORKS
+#
+############################################################################
+#			   The hosts file.
+############################################################################
+#
+#echo "Creating /$HOSTS..."
+/bin/cat << EOF > $HOSTS
+#
+# hosts		This file describes a number of hostname-to-address
+#		mappings for the TCP/IP subsystem.  It is mostly
+#		used at boot time, when no name servers are running.
+#		On small systems, this file can be used instead of a
+#		"named" name server.  Just add the names, addresses
+#		and any aliases to this file...
+#
+# By the way, Arnt Gulbrandsen <agulbra@nvg.unit.no> says that 127.0.0.1
+# should NEVER be named with the name of the machine.  It causes problems
+# for some (stupid) programs, irc and reputedly talk. :^)
+#
+
+# For loopbacking.
+127.0.0.1	localhost
+$IPADDR	 	$HOSTNM.$DOMAIN $HOSTNM
+
+# End of hosts.
+
+EOF
+chmod 644 $HOSTS
+#
+############################################################################
+#			The resolv.conf file.
+############################################################################
+#
+if [ "$LOOPBACK" = "no" ]; then
+ dialog --title "USE A NAMESERVER?" --yesno "Will you be accessing a \
+nameserver?" 5 50 
+ if [ $? = 0 ]; then
+  if [ "$GATEWAY" = "" ]; then
+    DNSSAMPLE=`echo $IPADDR | cut -f 1-3 -d .`
+  else
+    DNSSAMPLE=$GATEWAY
+  fi
+  while [ "$NAMESERVER" = "" ]; do
+   cat << EOF > $TMP/tempmsg
+Here is your current IP address, full hostname, and base hostname:
+$IPADDR       $HOSTNM.$DOMAIN    $HOSTNM
+
+Please give the IP address of the name server to use,
+such as $DNSSAMPLE.
+
+You can add more Domain Name Servers by editing /$RESOLV.
+
+Name Server for domain $DOMAIN (aaa.bbb.ccc.ddd): 
+EOF
+   dialog --title "SELECT NAMESERVER" --inputbox \
+"`cat $TMP/tempmsg`" 16 72 2> $TMP/SeTns
+   if [ $? = 1 -o $? = 255 ]; then
+    rm -f $TMP/tempmsg $TMP/SeTns 
+    break
+   fi
+   NAMESERVER="`cat $TMP/SeTns`"
+   rm -f $TMP/tempmsg $TMP/SeTns 
+  done
+  echo "search $DOMAIN" >$RESOLV
+  echo "nameserver $NAMESERVER" >>$RESOLV
+ else
+  echo "search $DOMAIN" >$RESOLV
+ fi
+fi
+if [ "$LOOPBACK" = "no" ]; then chmod 644 $RESOLV ;fi
+#
+############################################################################
+#		     Change permissions and exit.
+############################################################################
+#
+
+# Check for existing network driver:
+if cat /proc/net/dev | fgrep eth0 1> /dev/null 2> /dev/null ; then
+  # Skip probe by setting an empty cardfound file that will be ignored:
+  touch /cardfound
+fi
+
+if [ -d lib/modules/`uname -r`/kernel/drivers/net \
+     -a ! "$IPADDR" = "127.0.0.1" \
+     -a ! -r /cardfound \
+     -o "$DHCP" = "yes" ]; then
+  dialog --title "PROBE FOR NETWORK CARD?" --menu "If you like, we \
+can look to see what kind of network card you have in your machine, and \
+if we find one create an /etc/rc.modules script to load the module \
+for it at boot time.  There's a slight bit of danger that the probing \
+can cause problems, but it almost always works.  If you'd rather configure \
+your system manually, you can skip the probing process and edit \
+/etc/rc.modules later to have it load the right module." \
+15 68 2 \
+"probe" "look for network cards to set up" \
+"skip" "skip probe;  edit /etc/rc.modules later" 2> $TMP/reply
+  if [ $? = 1 -o $? = 255 ]; then
+    rm -f $TMP/reply
+    exit
+  fi
+  REPLY=`cat $TMP/reply`
+  rm -f $TMP/reply
+  if [ ! "$REPLY" = "skip" ]; then
+    for card in 8139too 3c59x de4x5 dgrs eepro100 epic100 hp100 lance \
+      ne2k-pci olympic pcnet32 rcpci rtl8139 sktr tulip via-rhine \
+      yellowfin ; do
+      chroot . /sbin/modprobe $card 2> /dev/null
+      if [ $? = 0 ]; then
+        dialog --title "CARD DETECTED" --msgbox "A networking card using \
+the $card.o module has been detected." 5 72
+        echo "$card" > /cardfound
+        break;
+      fi
+     done
+     if [ ! -r /cardfound ]; then
+       for card in depca ibmtr 3c501 3c503 3c505 3c507 3c509 3c515 ac3200 \
+         acenic arlan at1700 com20020 com90io com90xx cosa cs89x0 de4x5 de600 \
+         de620 e2100 eepro eexpress es3210 eth16i ewrk3 fmv18x hostess_sv11 \
+         hp-plus hp lne390 ne3210 ni5010 ni52 ni65 sb1000 sealevel smc-ultra \
+         smc-ultra32 smc9194 wd ; do
+         chroot . /sbin/modprobe $card 2> /dev/null
+         if [ $? = 0 ]; then
+           dialog --title "CARD DETECTED" --msgbox "A networking card using \
+the $card.o module has been detected." 5 72
+           echo "$card" > /cardfound
+           break
+         fi
+       done
+     fi
+     if [ ! -r /cardfound ]; then
+       dialog --title "NO CARD DETECTED" --msgbox "Sorry, but no network \
+card could be probed for on your system.  Some cards (like non-PCI NE2000s) \
+must be supplied with the I/O address to use and can't be probed for safely. \
+You'll have to try to configure the card later by editing \
+/etc/rc.modules or recompiling your kernel." 9 70
+     fi
+  fi
+fi
+
+if [ -r /cardfound ]; then
+  if [ ! "`cat /cardfound`" = "" ]; then
+    cat << EOF >> etc/rc.modules
+# Load module for network device.
+# This script is automatically generated during the installation.
+
+/sbin/modprobe `cat /cardfound`
+
+EOF
+    chmod 755 etc/rc.modules
+  fi
+fi
+
+dialog --title "NETWORK SETUP COMPLETE" --msgbox "Your networking \
+software has now been configured." 5 68
+rm -f $TMP/tempmsg /cardfound

@@ -1,0 +1,8 @@
+#!/bin/sh
+SWAPLIST="`probe -l | fgrep "Linux swap" 2> $NDIR`" 
+if [ "$SWAPLIST" = "" ]; then
+ dialog --msgbox "You have not created a swap partition with Linux fdisk. \
+ Continuing without one" 6 70
+ exit 2
+fi
+echo $SWAPLIST
